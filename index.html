@@ -89,6 +89,7 @@ var T={ARI:"Arizona Cardinals",ATL:"Atlanta Falcons",BAL:"Baltimore Ravens",BUF:
 var AB={WSH:"WAS",JAX:"JAC",LAR:"LA"};
 var ESPN="https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=2026&seasontype=2";
 var YT="https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5&channelId=UCDVYQ4Zhbm3S2dlz7P1GBDg";
+var VID="https://www.googleapis.com/youtube/v3/videos?part=status";
 // Reserva offline: MMDDhhmm (UTC) visitante mandante placarV placarM
 var RAW=`09100020 NE SEA 10 13
 09110035 SF LA 27 7
@@ -215,7 +216,7 @@ var BASE=RAW.split("\n").map(function(l){var p=l.trim().split(" "),s=p[0],t=Date
 function all(){var m={};BASE.forEach(function(g){m[g.id]=g});for(var k in st.games)m[k]=st.games[k];return Object.keys(m).map(function(k){return m[k]})}
 function vis(){var n=Date.now();return all().filter(function(g){return g.sa!=null||(!g.f&&g.t+DUR<=n)})}
 function title(g){return nm(g.a)+" vs "+nm(g.h)+" Game Highlights | 2026 NFL Season Week "+g.w}
-function ytl(g){return "https://www.youtube.com/@NFL/search?query="+encodeURIComponent(title(g))}
+function ytl(g){var c=st.vids[g.id];return c?"https://www.youtube.com/watch?v="+c.v:"https://www.youtube.com/@NFL/search?query="+encodeURIComponent(title(g))}
 function nick(x){return nm(x).split(" ").pop().toLowerCase()}
 async function getJ(u){var r=await fetch(u),j=null;try{j=await r.json()}catch(e){}
  if(!r.ok)throw new Error((j&&j.error&&j.error.message)||("Erro "+r.status));return j}
@@ -242,16 +243,20 @@ async function update(){
  }catch(err){note("Sem conexão com a ESPN ("+err.message+"). Mostrando os dados salvos.")}
  b.disabled=false;b.textContent="↻ Atualizar";render()}
 
+async function chk(v){var j=await getJ(VID+"&id="+encodeURIComponent(v)+"&key="+encodeURIComponent(st.ykey));var it=(j.items||[])[0];return !!(it&&it.status&&it.status.embeddable)}
 async function play(id){
  var g=vis().filter(function(x){return x.id===id})[0];if(!g)return;
- if(op[id]&&op[id].s==="ok"){delete op[id];return render()}
- if(st.vids[id]){op[id]={s:"ok"};return render()}
- if(!st.ykey){op[id]={s:"err",m:"Para assistir aqui, adicione sua chave da API do YouTube em ⚙."};return render()}
+ if(op[id]&&(op[id].s==="ok"||op[id].s==="blk")){delete op[id];return render()}
+ var c=st.vids[id];
+ if(!(c&&c.emb!==undefined)&&!st.ykey){op[id]={s:"err",m:"Para assistir aqui, adicione sua chave da API do YouTube em ⚙."};return render()}
  op[id]={s:"load"};render();
- try{var j=await getJ(YT+"&q="+encodeURIComponent(title(g))+"&key="+encodeURIComponent(st.ykey));
-  var it=(j.items||[]).filter(function(i){var t=i.snippet.title.toLowerCase();return t.indexOf(nick(g.a))>=0&&t.indexOf(nick(g.h))>=0})[0];
-  if(it){st.vids[id]={v:it.id.videoId,n:dec(it.snippet.title)};save();op[id]={s:"ok"}}
-  else op[id]={s:"err",m:"Resumo não encontrado no canal da NFL. Use o link do YouTube."}
+ try{
+  if(!c){var j=await getJ(YT+"&q="+encodeURIComponent(title(g))+"&key="+encodeURIComponent(st.ykey));
+   var it=(j.items||[]).filter(function(i){var t=i.snippet.title.toLowerCase();return t.indexOf(nick(g.a))>=0&&t.indexOf(nick(g.h))>=0})[0];
+   if(!it){op[id]={s:"err",m:"Resumo não encontrado no canal da NFL. Use o link do YouTube."};return render()}
+   c=st.vids[id]={v:it.id.videoId,n:dec(it.snippet.title)}}
+  if(c.emb===undefined)c.emb=await chk(c.v);
+  save();op[id]={s:c.emb?"ok":"blk"}
  }catch(e){op[id]={s:"err",m:e.message}}
  render()}
 
@@ -276,16 +281,18 @@ function render(){
   var seen=!!st.seen[g.id],has=g.sa!=null,wa=has&&g.sa>g.sh,wh=has&&g.sh>g.sa,o=op[g.id],pl="";
   if(o&&o.s==="load")pl='<div class="pl">Buscando o vídeo…</div>';
   else if(o&&o.s==="err")pl='<div class="pl err">'+esc(o.m)+'</div>';
+  else if(o&&o.s==="blk"&&st.vids[g.id])pl='<div class="pl err">A NFL não permite exibir este vídeo fora do YouTube.</div><div class="pl"><button class="yt pop">Abrir em janela pequena</button></div>';
   else if(o&&o.s==="ok"&&st.vids[g.id])pl='<div class="pl"><iframe src="https://www.youtube-nocookie.com/embed/'+encodeURIComponent(st.vids[g.id].v)+'?rel=0" allow="accelerometer;encrypted-media;picture-in-picture;fullscreen" allowfullscreen loading="lazy" title="Resumo do jogo"></iframe>'+esc(st.vids[g.id].n)+'</div>';
   var el=document.createElement("div");el.className="g"+(seen?" seen":"");
   el.innerHTML='<div class="info">'+(g.tag?'<div class="tag">'+g.tag+'</div>':'')+
    '<div class="when">'+fmt(g.t,{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})+'</div>'+
    '<div class="match"><span class="'+(wa?"win":has?"lose":"")+'">'+esc(nm(g.a))+'</span><span>'+(has?g.sa:"–")+'</span></div>'+
    '<div class="match"><span class="'+(wh?"win":has?"lose":"")+'">@ '+esc(nm(g.h))+'</span><span>'+(has?g.sh:"–")+'</span></div>'+
-   '<div class="acts"><button class="yt pb">'+(o&&o.s==="ok"?"✕ Fechar vídeo":"▶ Assistir aqui")+'</button><a class="yt" target="_blank" rel="noopener" href="'+ytl(g)+'">Abrir no YouTube</a></div>'+pl+'</div>'+
+   '<div class="acts"><button class="yt pb">'+(o&&(o.s==="ok"||o.s==="blk")?"✕ Fechar":"▶ Assistir aqui")+'</button><a class="yt" target="_blank" rel="noopener" href="'+ytl(g)+'">Abrir no YouTube</a></div>'+pl+'</div>'+
    '<button class="chk" aria-label="Marcar como visto">'+(seen?"✓":"")+'</button>';
   el.querySelector(".chk").onclick=function(){if(st.seen[g.id])delete st.seen[g.id];else st.seen[g.id]=1;save();render()};
   el.querySelector(".pb").onclick=function(){play(g.id)};
+  var pp=el.querySelector(".pop");if(pp)pp.onclick=function(){window.open("https://www.youtube.com/watch?v="+st.vids[g.id].v,"nflvid","popup=yes,width=560,height=360")};
   L.appendChild(el)});
 }
 $("ubtn").onclick=update;
