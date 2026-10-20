@@ -280,7 +280,7 @@ function render(){
  gs.forEach(function(g){
   var seen=!!st.seen[g.id],has=g.sa!=null,wa=has&&g.sa>g.sh,wh=has&&g.sh>g.sa,o=op[g.id],pl="";
   if(o&&o.s==="load")pl='<div class="pl">Buscando o vídeo…</div>';
-  //else if(o&&o.s==="err")pl='<div class="pl err">'+esc(o.m)+'</div>';
+  else if(o&&o.s==="err")pl='<div class="pl err">'+esc(o.m)+'</div>';
   //else if(o&&o.s==="blk"&&st.vids[g.id])
   pl='<div class="pl err">A NFL não permite exibir este vídeo fora do YouTube.</div><div class="pl"><button class="yt pop">Abrir em janela pequena</button></div>';
   //else if(o&&o.s==="ok"&&st.vids[g.id])pl='<div class="pl"><iframe src="https://www.youtube-nocookie.com/embed/'+encodeURIComponent(st.vids[g.id].v)+'?rel=0" allow="accelerometer;encrypted-media;picture-in-picture;fullscreen" allowfullscreen loading="lazy" title="Resumo do jogo"></iframe>'+esc(st.vids[g.id].n)+'</div>';
