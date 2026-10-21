@@ -70,14 +70,30 @@ dialog input{width:100%;padding:9px;border-radius:8px;border:1px solid var(--bd)
   <div class="weeks" id="weeks"></div>
   <div class="filters" id="filters"></div>
   <div id="list"></div>
-  <div class="note">Jogos e placares: ESPN. Vídeos: canal oficial da NFL no YouTube. Suas marcações e dados ficam salvos neste navegador.</div>
+  <div class="note">Jogos e placares: ESPN. Vídeos: canal oficial da NFL no YouTube. Suas marcações ficam salvas neste navegador e, com a sincronização ativada (⚙), em todos os seus aparelhos.</div>
 </div>
 <dialog id="dlg">
   <h2>Configurações</h2>
   <p>Para o link abrir direto o vídeo de cada jogo, cole uma chave da YouTube Data API v3. Ela fica só neste navegador e o app gasta poucas unidades da cota diária.</p>
   <ol><li>Acesse console.cloud.google.com e crie um projeto.</li><li>Ative a "YouTube Data API v3".</li><li>Em Credenciais, crie uma chave de API e restrinja-a a https://victor-orrico.github.io/*</li></ol>
   <input id="kin" placeholder="Chave de API (AIza…)" autocomplete="off">
-  <div class="drow"><button id="kclr">Remover</button><button id="kx">Fechar</button><button class="pri" id="ksv">Salvar</button></div>
+  <div class="drow"><button id="kclr">Remover chave</button><button class="pri" id="ksv">Salvar</button></div>
+  <hr style="border:0;border-top:1px solid var(--bd);margin:16px 0 12px">
+  <h2 style="font-size:16px">Sincronizar entre aparelhos</h2>
+  <div id="syoff">
+   <p><b>No primeiro aparelho:</b> em github.com/settings/tokens crie um token clássico só com a permissão "gist", cole abaixo e toque em Ativar.</p>
+   <input id="tin" placeholder="Token do GitHub (ghp_…)" autocomplete="off">
+   <div class="drow"><button class="pri" id="son">Ativar</button></div>
+   <p><b>Nos outros aparelhos:</b> cole o código de sincronização gerado no primeiro.</p>
+   <input id="cin" placeholder="Código de sincronização" autocomplete="off">
+   <div class="drow"><button class="pri" id="scn">Conectar</button></div>
+  </div>
+  <div id="syon" style="display:none">
+   <p>Sincronização ativa. Para usar em outro aparelho, copie o código abaixo. Ele contém o seu token: não compartilhe.</p>
+   <input id="cout" readonly>
+   <div class="drow"><button id="scp">Copiar</button><button id="soff">Desativar</button></div>
+  </div>
+  <div class="drow"><button id="kx">Fechar</button></div>
 </dialog>
 <script>
 var T={ARI:"Arizona Cardinals",ATL:"Atlanta Falcons",BAL:"Baltimore Ravens",BUF:"Buffalo Bills",CAR:"Carolina Panthers",CHI:"Chicago Bears",CIN:"Cincinnati Bengals",CLE:"Cleveland Browns",DAL:"Dallas Cowboys",DEN:"Denver Broncos",DET:"Detroit Lions",GB:"Green Bay Packers",HOU:"Houston Texans",IND:"Indianapolis Colts",JAC:"Jacksonville Jaguars",KC:"Kansas City Chiefs",LV:"Las Vegas Raiders",LAC:"Los Angeles Chargers",LA:"Los Angeles Rams",MIA:"Miami Dolphins",MIN:"Minnesota Vikings",NE:"New England Patriots",NO:"New Orleans Saints",NYG:"New York Giants",NYJ:"New York Jets",PHI:"Philadelphia Eagles",PIT:"Pittsburgh Steelers",SF:"San Francisco 49ers",SEA:"Seattle Seahawks",TB:"Tampa Bay Buccaneers",TEN:"Tennessee Titans",WAS:"Washington Commanders"};
@@ -197,6 +213,8 @@ var DAY=864e5,DUR=3.5*36e5,W1=Date.UTC(2026,8,9,3,0);
 var KEY="nfl-tracker-v3",st={seen:{},games:{},fdone:{},vids:{},ykey:"",upd:0},cur=null,flt="all";
 try{var s0=JSON.parse(localStorage.getItem(KEY)||"null");if(s0)for(var k0 in s0)st[k0]=s0[k0]}catch(e){}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}}
+function isSeen(id){return (st.seen[id]||0)>0}
+var tm=0,syncing=false,again=false;
 function $(i){return document.getElementById(i)}
 function nm(x){return T[x]||x}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
@@ -208,6 +226,26 @@ var BASE=RAW.split("\n").map(function(l){var p=l.trim().split(" "),s=p[0],t=Date
  return mk(Math.floor((t-W1)/(7*DAY))+1,t,p[1],p[2],p[3]==null?null:+p[3],p[4]==null?null:+p[4],0)});
 function all(){var m={};BASE.forEach(function(g){m[g.id]=g});for(var k in st.games)m[k]=st.games[k];return Object.keys(m).map(function(k){return m[k]})}
 function vis(){var n=Date.now();return all().filter(function(g){return g.sa!=null||(!g.f&&g.t+DUR<=n)})}
+function merge(r){var ch=0,rs=r.seen||{},rv=r.vids||{},k;
+ for(k in rs){var a=st.seen[k]||0,b=rs[k];if(Math.abs(b)>Math.abs(a)){st.seen[k]=b;ch=1}}
+ for(k in rv)if(!st.vids[k]){st.vids[k]=rv[k];ch=1}
+ return ch}
+async function gh(path,opt){opt=opt||{};
+ var r=await fetch("https://api.github.com"+path,{method:opt.method||"GET",cache:"no-store",body:opt.body,headers:{Authorization:"Bearer "+st.gh.t,Accept:"application/vnd.github+json","Content-Type":"application/json"}}),j=null;
+ try{j=await r.json()}catch(e){}
+ if(!r.ok)throw new Error((j&&j.message)||("Erro "+r.status));return j}
+async function syncNow(){
+ if(!st.gh||!st.gh.g)return;if(syncing){again=true;return}syncing=true;
+ try{var j=await gh("/gists/"+st.gh.g),f=j.files&&j.files["nfl-tracker.json"],c=f&&f.content||"{}",r={};
+  try{r=JSON.parse(c)}catch(e){}
+  var ch=merge(r);save();
+  var p=JSON.stringify({seen:st.seen,vids:st.vids});
+  if(p!==c)await gh("/gists/"+st.gh.g,{method:"PATCH",body:JSON.stringify({files:{"nfl-tracker.json":{content:p}}})});
+  if(ch)render()
+ }catch(e){note("Sincronização: "+e.message)}
+ syncing=false;if(again){again=false;syncNow()}}
+function showSync(){var on=!!(st.gh&&st.gh.g);$("syoff").style.display=on?"none":"block";$("syon").style.display=on?"block":"none";
+ if(on)$("cout").value=btoa(JSON.stringify(st.gh))}
 function title(g){return nm(g.a)+" vs "+nm(g.h)+" Game Highlights | 2026 NFL Season Week "+g.w}
 function ytl(g){var c=st.vids[g.id];return c?"https://www.youtube.com/watch?v="+c.v:"https://www.youtube.com/@NFL/search?query="+encodeURIComponent(title(g))}
 function nick(x){return nm(x).split(" ").pop().toLowerCase()}
@@ -254,23 +292,23 @@ async function update(){
 function render(){
  var V=vis(),ws=[];V.forEach(function(g){if(ws.indexOf(g.w)<0)ws.push(g.w)});ws.sort(function(a,b){return a-b});
  if(cur==null||ws.indexOf(cur)<0)cur=ws[ws.length-1];
- var sn=V.filter(function(g){return st.seen[g.id]}).length;
+ var sn=V.filter(function(g){return isSeen(g.id)}).length;
  $("ptxt").innerHTML="<b>"+sn+"</b> de "+V.length+" jogos disputados assistidos";
  $("pbar").style.width=(V.length?sn/V.length*100:0)+"%";
  $("upd").textContent=st.upd?"Atualizado em "+fmt(st.upd,{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"Ainda não atualizado: mostrando dados de reserva";
- $("upd").textContent+=st.ykey?"":" · ⚙: adicione a chave do YouTube para abrir o vídeo direto";
+ $("upd").textContent+=(st.gh&&st.gh.g?" · ☁ sincronizado":"")+(st.ykey?"":" · ⚙: adicione a chave do YouTube para abrir o vídeo direto");
  var wk=$("weeks");wk.innerHTML="";
- ws.forEach(function(w){var gs=V.filter(function(g){return g.w===w}),n=gs.filter(function(g){return st.seen[g.id]}).length,o={day:"2-digit",month:"short",timeZone:"America/Sao_Paulo"},ts=gs.map(function(g){return g.t});
+ ws.forEach(function(w){var gs=V.filter(function(g){return g.w===w}),n=gs.filter(function(g){return isSeen(g.id)}).length,o={day:"2-digit",month:"short",timeZone:"America/Sao_Paulo"},ts=gs.map(function(g){return g.t});
   var b=document.createElement("button");b.className="wk"+(w===cur?" on":"");
   b.innerHTML="Semana "+w+"<small>"+fmt(Math.min.apply(null,ts),o)+" – "+fmt(Math.max.apply(null,ts),o)+" · "+n+"/"+gs.length+"</small>";
   b.onclick=function(){cur=w;render()};wk.appendChild(b)});
  var fe=$("filters");fe.innerHTML="";
  [["all","Todos"],["todo","Não vistos"],["seen","Vistos"]].forEach(function(f){var b=document.createElement("button");b.className="f"+(flt===f[0]?" on":"");b.textContent=f[1];b.onclick=function(){flt=f[0];render()};fe.appendChild(b)});
  var L=$("list");L.innerHTML="";
- var gs=V.filter(function(g){return g.w===cur&&(flt==="all"||(flt==="seen"?st.seen[g.id]:!st.seen[g.id]))}).sort(function(a,b){return a.t-b.t});
+ var gs=V.filter(function(g){return g.w===cur&&(flt==="all"||(flt==="seen"?isSeen(g.id):!isSeen(g.id)))}).sort(function(a,b){return a.t-b.t});
  if(!gs.length){L.innerHTML='<div class="empty">Nenhum jogo neste filtro.</div>';return}
  gs.forEach(function(g){
-  var seen=!!st.seen[g.id],has=g.sa!=null,wa=has&&g.sa>g.sh,wh=has&&g.sh>g.sa;
+  var seen=!!isSeen(g.id),has=g.sa!=null,wa=has&&g.sa>g.sh,wh=has&&g.sh>g.sa;
   var el=document.createElement("div");el.className="g"+(seen?" seen":"");
   el.innerHTML='<div class="info">'+(g.tag?'<div class="tag">'+g.tag+'</div>':'')+
    '<div class="when">'+fmt(g.t,{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})+'</div>'+
@@ -278,15 +316,23 @@ function render(){
    '<div class="match"><span class="'+(wh?"win":has?"lose":"")+'">@ '+esc(nm(g.h))+'</span><span>'+(has?g.sh:"–")+'</span></div>'+
    '<div class="acts"><a class="yt" target="_blank" rel="noopener" href="'+ytl(g)+'">'+(st.vids[g.id]?"▶ Abrir vídeo no YouTube":"Buscar no YouTube")+'</a></div>'+'</div>'+
    '<button class="chk" aria-label="Marcar como visto">'+(seen?"✓":"")+'</button>';
-  el.querySelector(".chk").onclick=function(){if(st.seen[g.id])delete st.seen[g.id];else st.seen[g.id]=1;save();render()};
+  el.querySelector(".chk").onclick=function(){isSeen(g.id)=isSeen(g.id)?-Date.now():Date.now();save();render();clearTimeout(tm);tm=setTimeout(syncNow,700)};
   L.appendChild(el)});
 }
 $("ubtn").onclick=update;
-$("gbtn").onclick=function(){$("kin").value=st.ykey||"";$("dlg").showModal()};
+$("gbtn").onclick=function(){$("kin").value=st.ykey||"";showSync();$("dlg").showModal()};
 $("kx").onclick=function(){$("dlg").close()};
 $("ksv").onclick=function(){st.ykey=$("kin").value.trim();save();$("dlg").close();render();findVids().catch(function(e){note("Vídeos: "+e.message)})};
 $("kclr").onclick=function(){st.ykey="";$("kin").value="";save();render()};
-render();update();
+$("son").onclick=async function(){var t=$("tin").value.trim();if(!t)return;
+ try{st.gh={t:t,g:null};var j=await gh("/gists",{method:"POST",body:JSON.stringify({description:"NFL Tracker (dados)",public:false,files:{"nfl-tracker.json":{content:JSON.stringify({seen:st.seen,vids:st.vids})}}})});
+  st.gh.g=j.id;save();$("tin").value="";showSync();render();note("Sincronização ativada.")}
+ catch(e){st.gh=null;note("Não foi possível ativar: "+e.message);$("dlg").close()}};
+$("scn").onclick=function(){try{var o=JSON.parse(atob($("cin").value.trim()));if(!o.t||!o.g)throw 0;st.gh={t:o.t,g:o.g};save();$("cin").value="";showSync();syncNow().then(render)}catch(e){note("Código de sincronização inválido.");}};
+$("scp").onclick=function(){$("cout").select();try{navigator.clipboard.writeText($("cout").value)}catch(e){document.execCommand("copy")}};
+$("soff").onclick=function(){st.gh=null;save();showSync();render()};
+document.addEventListener("visibilitychange",function(){if(!document.hidden)syncNow()});
+render();update();syncNow();
 </script>
 </body>
 </html>
